@@ -26,6 +26,8 @@ class MeanReversionStrategy(Strategy):
         bb_period: int = 20,
         bb_std: float = 2.0,
         atr_period: int = 14,
+        sl_mult: float = None,
+        tp_mult: float = None,
     ):
         self.rsi_period = rsi_period
         self.rsi_oversold = rsi_oversold
@@ -33,6 +35,8 @@ class MeanReversionStrategy(Strategy):
         self.bb_period = bb_period
         self.bb_std = bb_std
         self.atr_period = atr_period
+        self.sl_mult = sl_mult if sl_mult is not None else config.SL_ATR_MULT
+        self.tp_mult = tp_mult if tp_mult is not None else config.TP_ATR_MULT
 
     def decide(self, candles: List[dict]) -> Signal:
         try:
@@ -53,8 +57,8 @@ class MeanReversionStrategy(Strategy):
             # BUY signal
             if current_rsi < self.rsi_oversold and current_close <= lower_band:
                 entry = current_close * (1 - config.ENTRY_OFFSET_PCT)
-                sl = entry - config.SL_ATR_MULT * current_atr
-                tp = entry + config.TP_ATR_MULT * current_atr
+                sl = entry - self.sl_mult * current_atr
+                tp = entry + self.tp_mult * current_atr
                 conf = min(1.0, (self.rsi_oversold - current_rsi) / self.rsi_oversold)
                 return Signal(
                     action="BUY",

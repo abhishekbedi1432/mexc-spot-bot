@@ -21,14 +21,18 @@ class TrendEMAStrategy(Strategy):
         fast: int = 9,
         slow: int = 21,
         adx_period: int = 14,
-        adx_threshold: float = 20.0,
+        adx_threshold: float = 25.0,  # raised from 20: filters weak trends
         atr_period: int = 14,
+        sl_mult: float = None,
+        tp_mult: float = None,
     ):
         self.fast = fast
         self.slow = slow
         self.adx_period = adx_period
         self.adx_threshold = adx_threshold
         self.atr_period = atr_period
+        self.sl_mult = sl_mult if sl_mult is not None else config.SL_ATR_MULT
+        self.tp_mult = tp_mult if tp_mult is not None else config.TP_ATR_MULT
 
     def decide(self, candles: List[dict]) -> Signal:
         try:
@@ -55,8 +59,8 @@ class TrendEMAStrategy(Strategy):
             if crossover and strong_trend:
                 close = closes[-1]
                 entry = close * (1 - config.ENTRY_OFFSET_PCT)
-                sl = entry - config.SL_ATR_MULT * atr_now  # type: ignore[operator]
-                tp = entry + config.TP_ATR_MULT * atr_now  # type: ignore[operator]
+                sl = entry - self.sl_mult * atr_now  # type: ignore[operator]
+                tp = entry + self.tp_mult * atr_now  # type: ignore[operator]
                 conf = min(1.0, adx_now / 50.0)  # type: ignore[operator]
                 return Signal(
                     action="BUY",

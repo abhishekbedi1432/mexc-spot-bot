@@ -62,8 +62,11 @@ MAX_TRADE_USDT: float = 9.0
 CAPITAL_FRACTION: float = 0.90
 
 # ATR multipliers for SL / TP
-SL_ATR_MULT: float = 1.0
-TP_ATR_MULT: float = 1.5   # RR ≈ 1:1.5
+# Grid search (30d, 4 pairs × 4 strategies, min_confidence=0.3) confirmed:
+# TP=1.5 is optimal — higher TP collapses win rate faster than RR improves.
+# SL=1.25 gives best win rate (49%) and least-negative aggregate PnL.
+SL_ATR_MULT: float = 1.25
+TP_ATR_MULT: float = 1.5   # RR ≈ 1:1.2
 
 # Daily loss kill-switch: if today's PnL <= this fraction of start-of-day equity → HOLD
 DAILY_LOSS_LIMIT: float = -0.05  # -5%
@@ -77,8 +80,9 @@ ENTRY_OFFSET_PCT: float = 0.0005  # 0.05%
 # Skip trade if spread > this
 MAX_SPREAD_PCT: float = 0.0005  # 0.05%
 
-# Skip trade if expected net profit < this multiple of round-trip fees
-MIN_PROFIT_FEE_MULTIPLE: float = 2.0
+# Skip trade if expected net profit < this multiple of round-trip fees.
+# 3.0 = TP profit must be ≥ 3× round-trip cost. Ensures ATR/price ≥ ~0.4%.
+MIN_PROFIT_FEE_MULTIPLE: float = 3.0
 
 # Binance VIP 0 fees
 MAKER_FEE: float = 0.001   # 0.10%

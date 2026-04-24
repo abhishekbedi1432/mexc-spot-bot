@@ -23,10 +23,14 @@ class BreakoutDonchianStrategy(Strategy):
         period: int = 20,
         volume_mult: float = VOLUME_MULT,
         atr_period: int = 14,
+        sl_mult: float = None,
+        tp_mult: float = None,
     ):
         self.period = period
         self.volume_mult = volume_mult
         self.atr_period = atr_period
+        self.sl_mult = sl_mult if sl_mult is not None else config.SL_ATR_MULT
+        self.tp_mult = tp_mult if tp_mult is not None else config.TP_ATR_MULT
 
     def decide(self, candles: List[dict]) -> Signal:
         try:
@@ -49,8 +53,8 @@ class BreakoutDonchianStrategy(Strategy):
 
             if breakout and high_volume:
                 entry = current_close * (1 - config.ENTRY_OFFSET_PCT)
-                sl = entry - config.SL_ATR_MULT * atr_now  # type: ignore[operator]
-                tp = entry + config.TP_ATR_MULT * atr_now  # type: ignore[operator]
+                sl = entry - self.sl_mult * atr_now  # type: ignore[operator]
+                tp = entry + self.tp_mult * atr_now  # type: ignore[operator]
                 vol_ratio = current_vol / avg_vol  # type: ignore[operator]
                 conf = min(1.0, (vol_ratio - 1.0) / 2.0)
                 return Signal(

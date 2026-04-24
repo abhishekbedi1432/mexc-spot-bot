@@ -22,8 +22,10 @@ class MomentumMACDStrategy(Strategy):
         macd_slow: int = 26,
         macd_signal: int = 9,
         rsi_period: int = 14,
-        rsi_threshold: float = 50.0,
+        rsi_threshold: float = 52.0,  # slight raise from 50: avoids borderline signals
         atr_period: int = 14,
+        sl_mult: float = None,
+        tp_mult: float = None,
     ):
         self.macd_fast = macd_fast
         self.macd_slow = macd_slow
@@ -31,6 +33,8 @@ class MomentumMACDStrategy(Strategy):
         self.rsi_period = rsi_period
         self.rsi_threshold = rsi_threshold
         self.atr_period = atr_period
+        self.sl_mult = sl_mult if sl_mult is not None else config.SL_ATR_MULT
+        self.tp_mult = tp_mult if tp_mult is not None else config.TP_ATR_MULT
 
     def decide(self, candles: List[dict]) -> Signal:
         try:
@@ -53,9 +57,12 @@ class MomentumMACDStrategy(Strategy):
             if histogram_flip and momentum_ok:
                 close = closes[-1]
                 entry = close * (1 - config.ENTRY_OFFSET_PCT)
-                sl = entry - config.SL_ATR_MULT * atr_now  # type: ignore[operator]
-                tp = entry + config.TP_ATR_MULT * atr_now  # type: ignore[operator]
-                conf = min(1.0, (rsi_now - 50) / 50)  # type: ignore[operator]
+                sl = entry - self.sl_mult * atr_now  # type: ignore[operator]
+                tp = entry + self.tp_mult * atr_now  # type: ignore[operator]
+                # Normalize over 20-point range above threshold.
+                # conf=0.3 when RSI is 6pts above threshold (e.g. RSI=58 with threshold=52).
+                # Much more responsive than old (rsi-50)/50 which required RSI=65 for conf=0.3.
+                conf = min(1.0, (rsi_now - self.rsi_threshold) / 20.0)  # type: ignore[operator]
                 return Signal(
                     action="BUY",
                     confidence=round(conf, 3),
