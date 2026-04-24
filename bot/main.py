@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from bot import config
+from bot import risk
 from bot.strategies.base import Signal
 from bot.strategies.mean_reversion import MeanReversionStrategy
 from bot.strategies.trend_ema import TrendEMAStrategy
@@ -104,6 +105,20 @@ def run_tick() -> int:
             confidence=0.0,
             reason="Phase 0 — no klines fetched yet",
         )
+
+        # --- Signal quality gates (active Phase 3+) ---
+        skip_reason: Optional[str] = None
+        if signal.action == "BUY":
+            if signal.confidence < config.MIN_CONFIDENCE:
+                skip_reason = f"confidence {signal.confidence:.2f} < MIN_CONFIDENCE {config.MIN_CONFIDENCE}"
+            elif signal.entry_price and signal.sl_price and signal.tp_price:
+                notional = min(config.MAX_TRADE_USDT, config.CAPITAL_USDT * config.CAPITAL_FRACTION)
+                if not risk.is_profit_viable(signal.entry_price, signal.sl_price, signal.tp_price, notional):
+                    skip_reason = "expected profit < 2× round-trip fees"
+
+        if skip_reason:
+            signal = Signal(action="HOLD", confidence=0.0, reason=f"filtered: {skip_reason}")
+            logger.debug("[%s] Signal filtered: %s", symbol, skip_reason)
 
         event = _make_event(symbol, signal, dry_run=config.DRY_RUN)
         _log_decision(event)

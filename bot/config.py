@@ -88,6 +88,10 @@ ROUND_TRIP_FEE: float = MAKER_FEE + TAKER_FEE  # 0.20%
 # Stale data guard: if last candle is older than this many seconds → HOLD
 MAX_CANDLE_AGE_SECONDS: int = 360  # 2 missed 5-min candles
 
+# Signal quality gate — skip BUY if confidence < this (0.0 = off, 0.3 = default filter)
+# Calibration: mean_reversion→RSI depth, trend_ema→ADX/50, breakout→volume ratio, macd→RSI position
+MIN_CONFIDENCE: float = float(os.getenv("MIN_CONFIDENCE", "0.3"))
+
 # ---------------------------------------------------------------------------
 # Chosen strategies (populated by scripts/pick_strategy.py after backtest)
 # ---------------------------------------------------------------------------

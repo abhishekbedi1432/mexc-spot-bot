@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from bot import config
-from bot.risk import calc_quantity
+from bot.risk import calc_quantity, is_profit_viable
 from bot.strategies.base import Strategy
 
 # How many candles to feed the strategy per tick (mirrors live bot)
@@ -166,9 +166,15 @@ def run_backtest(
     symbol: str = "UNKNOWN",
     initial_capital: float = 10.0,
     step_size: Optional[float] = None,
+    min_confidence: float = 0.0,
 ) -> BacktestMetrics:
     """
     Walk-forward simulation over `candles`.
+
+    Args:
+        min_confidence: Skip BUY signals with confidence below this threshold.
+                        Set 0.0 to disable (baseline). Use config.MIN_CONFIDENCE
+                        for live-bot-consistent filtering.
     Returns BacktestMetrics with full trade log and summary stats.
     """
     if len(candles) < WARMUP + 2:
@@ -244,9 +250,18 @@ def run_backtest(
             and signal.sl_price < signal.entry_price
             and signal.tp_price > signal.entry_price
         ):
+            # Gate 1: signal confidence filter
+            if signal.confidence < min_confidence:
+                continue
+
             notional = min(config.MAX_TRADE_USDT, capital * config.CAPITAL_FRACTION)
             if notional < 1.0:  # below absolute floor
                 continue
+
+            # Gate 2: min profit viability (expected TP profit ≥ 2× round-trip fees)
+            if not is_profit_viable(signal.entry_price, signal.sl_price, signal.tp_price, notional):
+                continue
+
             qty = calc_quantity(notional, signal.entry_price, step_size)
             if qty <= 0:
                 continue

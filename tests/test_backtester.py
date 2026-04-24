@@ -293,3 +293,84 @@ class TestRunBacktestMetrics:
         m = self._run_mixed()
         for t in m.trades:
             assert t.is_win == (t.net_pnl_usdt > 0)
+
+
+# ---------------------------------------------------------------------------
+# Confidence filter gate
+# ---------------------------------------------------------------------------
+
+class TestConfidenceFilter:
+    def test_high_confidence_threshold_blocks_low_confidence(self):
+        """AlwaysBuyStrategy emits confidence=1.0 — should pass any threshold."""
+        entry, tp, sl = 100.0, 110.0, 95.0
+        candles = candles_with_tp_hit(entry=entry, tp=tp, sl=sl)
+        strategy = AlwaysBuyStrategy(entry=entry, sl=sl, tp=tp)
+        # confidence=1.0 always emitted, threshold=0.9 — should still trade
+        m = run_backtest(strategy, candles, initial_capital=10.0, step_size=0.01, min_confidence=0.9)
+        assert m.total_trades >= 1
+
+    def test_confidence_filter_blocks_all_trades(self):
+        """Threshold above 1.0 must block all trades."""
+        entry, tp, sl = 100.0, 110.0, 95.0
+        candles = candles_with_tp_hit(entry=entry, tp=tp, sl=sl)
+        strategy = AlwaysBuyStrategy(entry=entry, sl=sl, tp=tp)
+        m = run_backtest(strategy, candles, initial_capital=10.0, step_size=0.01, min_confidence=1.1)
+        assert m.total_trades == 0
+
+    def test_zero_threshold_is_same_as_no_filter(self):
+        """min_confidence=0.0 must match baseline (backward compat)."""
+        entry, tp, sl = 100.0, 110.0, 95.0
+        candles = candles_with_tp_hit(entry=entry, tp=tp, sl=sl)
+        strategy = AlwaysBuyStrategy(entry=entry, sl=sl, tp=tp)
+        m0 = run_backtest(strategy, candles, initial_capital=10.0, step_size=0.01, min_confidence=0.0)
+        m_base = run_backtest(strategy, candles, initial_capital=10.0, step_size=0.01)
+        assert m0.total_trades == m_base.total_trades
+
+
+# ---------------------------------------------------------------------------
+# is_profit_viable gate (wired into backtester)
+# ---------------------------------------------------------------------------
+
+class TestProfitViabilityGate:
+    def test_tight_tp_filtered_out(self):
+        """
+        Entry=100, TP=100.1 (0.1% move): expected profit < 2× round-trip fees (0.20%) → skipped.
+        """
+        from bot.risk import is_profit_viable
+        from bot import config
+        entry, sl, tp = 100.0, 99.0, 100.1
+        notional = 9.0
+        assert not is_profit_viable(entry, sl, tp, notional)
+
+    def test_adequate_tp_passes(self):
+        """Entry=100, TP=101.5 (1.5% move with ATR): should pass viability check."""
+        from bot.risk import is_profit_viable
+        entry, sl, tp = 100.0, 99.0, 101.5
+        notional = 9.0
+        assert is_profit_viable(entry, sl, tp, notional)
+
+    def test_backtester_with_profit_gate_trades_less_than_without(self):
+        """
+        With a tight TP (ATR=0.1 → TP=100.15), profit gate blocks trades.
+        With a wide TP (ATR=1.0 → TP=101.5), profit gate allows trades.
+        """
+        # Tight TP strategy: barely viable
+        class TightTPStrategy(Strategy):
+            name = "tight_tp"
+            def decide(self, candles):
+                return Signal(
+                    action="BUY", confidence=1.0, reason="test",
+                    entry_price=100.0, sl_price=99.9, tp_price=100.1,  # 0.1% TP
+                )
+
+        candles = candles_with_tp_hit(entry=100.0, tp=100.1, sl=99.9, n_before=60)
+        m_tight = run_backtest(TightTPStrategy(), candles, initial_capital=10.0, step_size=0.01)
+        # Wide TP strategy: clearly viable
+        m_wide = run_backtest(
+            AlwaysBuyStrategy(entry=100.0, sl=95.0, tp=110.0),
+            candles, initial_capital=10.0, step_size=0.01
+        )
+        # Tight TP should produce 0 trades (profit gate filters it)
+        # Wide TP should produce ≥1 trade
+        assert m_tight.total_trades == 0
+        assert m_wide.total_trades >= 1
