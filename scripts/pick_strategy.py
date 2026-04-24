@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """
-Pick the best strategy per pair based on backtest metrics.
-Writes result to config/chosen_strategies.json.
-Phase 2: Full implementation.
-Phase 0: Scaffold.
+Pick the best strategy per pair based on walk-forward backtest results.
+Writes winner to config/chosen_strategies.json.
 
 Usage:
   python scripts/pick_strategy.py
+  python scripts/pick_strategy.py --symbol BTCUSDT
 """
 from __future__ import annotations
 
+import argparse
+import math
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bot import config
-from bot.backtester import run_backtest
+from bot.backtester import BacktestMetrics, print_leaderboard, run_backtest
+from bot.data import load_candles
 from bot.strategies.mean_reversion import MeanReversionStrategy
 from bot.strategies.trend_ema import TrendEMAStrategy
 from bot.strategies.breakout_donchian import BreakoutDonchianStrategy
@@ -29,43 +31,96 @@ STRATEGIES = [
     MomentumMACDStrategy(),
 ]
 
+# Composite score weights — profit-first, then consistency, then drawdown penalty
 SCORE_WEIGHTS = {
-    "net_pnl_usdt": 0.4,
-    "profit_factor": 0.3,
-    "win_rate": 0.2,
-    # max_drawdown penalises — lower is better
-    "max_drawdown_pct": -0.1,
+    "net_pnl_usdt":     0.40,
+    "profit_factor":    0.30,
+    "win_rate":         0.20,
+    "max_drawdown_pct": -0.10,  # penalise; lower is better
 }
 
+# Minimum trade count to consider a backtest result valid
+MIN_TRADES = 3
 
-def score(metrics_summary: dict) -> float:
-    """Composite score for ranking strategies."""
-    s = 0.0
-    for key, weight in SCORE_WEIGHTS.items():
-        s += metrics_summary.get(key, 0.0) * weight
-    return s
+
+def composite_score(m: BacktestMetrics) -> float:
+    """Composite ranking score. Returns -inf for insufficient trade count."""
+    if m.total_trades < MIN_TRADES:
+        return float("-inf")
+    pf = min(m.profit_factor, 10.0)  # cap inf profit_factor to avoid distortion
+    return (
+        m.net_pnl_usdt     * SCORE_WEIGHTS["net_pnl_usdt"]
+        + pf               * SCORE_WEIGHTS["profit_factor"]
+        + m.win_rate       * SCORE_WEIGHTS["win_rate"]
+        + m.max_drawdown_pct * SCORE_WEIGHTS["max_drawdown_pct"]
+    )
 
 
 def main() -> int:
-    print("Phase 0: no kline data available yet. Defaulting all pairs → mean_reversion.\n")
+    parser = argparse.ArgumentParser(description="Pick best strategy per pair via backtest")
+    parser.add_argument("--symbol", default=None, help="Single symbol (default: all pairs)")
+    args = parser.parse_args()
 
-    # Phase 2+: fetch klines and run real backtest per pair × strategy
-    chosen = {}
-    for symbol in config.PAIRS:
-        best_name = "mean_reversion"  # default until backtest runs
-        best_score = float("-inf")
+    symbols = [args.symbol] if args.symbol else config.PAIRS
+
+    all_metrics: list[BacktestMetrics] = []
+    chosen: dict[str, str] = {}
+    missing: list[str] = []
+
+    print(f"\nRunning backtest: {len(symbols)} pair(s) × {len(STRATEGIES)} strategies\n")
+
+    for symbol in symbols:
+        candles = load_candles(symbol)
+        if not candles:
+            print(f"  [{symbol}] No cache — run: python scripts/fetch_history.py")
+            missing.append(symbol)
+            continue
+
+        print(f"  [{symbol}] {len(candles):,} candles — running strategies ...", end="", flush=True)
+        pair_results: list[BacktestMetrics] = []
         for strategy in STRATEGIES:
-            candles: list = []  # Phase 2: fetch real klines
-            metrics = run_backtest(strategy, candles, symbol=symbol)
-            s = score(metrics.summary())
-            if s > best_score:
-                best_score = s
-                best_name = strategy.name
-        chosen[symbol] = best_name
-        print(f"  {symbol}: {best_name} (score={best_score:.4f})")
+            m = run_backtest(strategy, candles, symbol=symbol)
+            pair_results.append(m)
+            all_metrics.append(m)
+        print(f" done ({sum(m.total_trades for m in pair_results)} total trades across strategies)")
 
-    config.save_chosen_strategies(chosen)
-    print(f"\nSaved to {config.CHOSEN_STRATEGIES_FILE}")
+        # Select winner by composite score
+        best = max(pair_results, key=composite_score)
+        best_score = composite_score(best)
+
+        if best_score == float("-inf"):
+            # All strategies generated < MIN_TRADES — fall back to most active
+            best = max(pair_results, key=lambda m: m.total_trades)
+            print(f"  [{symbol}] ⚠ Low trade count — defaulting to highest-activity: {best.strategy_name}")
+        else:
+            print(f"  [{symbol}] ✔ Winner: {best.strategy_name}  (score={best_score:.4f}, "
+                  f"trades={best.total_trades}, pnl={best.net_pnl_usdt:+.4f}, "
+                  f"win={best.win_rate:.0%})")
+
+        chosen[symbol] = best.strategy_name
+
+    print()
+    if all_metrics:
+        print_leaderboard(all_metrics)
+
+    if not chosen:
+        print("\nNo pairs processed — check data cache.")
+        return 1
+
+    # Preserve existing entries for symbols not processed this run
+    existing = config.load_chosen_strategies()
+    existing.pop("_note", None)
+    merged = {**existing, **chosen}
+    merged["_note"] = "Auto-generated by scripts/pick_strategy.py after Phase 2 backtest. Do not edit manually."
+    # Re-order: _note first
+    ordered = {"_note": merged.pop("_note"), **merged}
+
+    config.save_chosen_strategies(ordered)
+    print(f"\n✔ Saved → {config.CHOSEN_STRATEGIES_FILE}")
+
+    if missing:
+        print(f"  Missing cache for: {missing}. Run fetch_history.py to add them.")
+
     return 0
 
 
