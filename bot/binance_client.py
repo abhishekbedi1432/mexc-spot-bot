@@ -200,3 +200,74 @@ def get_usdt_balance() -> float:
         if asset["asset"] == "USDT":
             return float(asset["free"])
     return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Historical klines (paginated, public — no auth)
+# ---------------------------------------------------------------------------
+
+MAX_KLINES_PER_REQUEST = 1000
+_5M_MS = 5 * 60 * 1000  # 5 minutes in milliseconds
+
+
+def get_klines_range(
+    symbol: str,
+    interval: str,
+    start_ms: int,
+    end_ms: int,
+) -> list:
+    """
+    Fetch all klines between start_ms and end_ms by paginating
+    through Binance's 1000-candle-per-request limit.
+    Returns list of candle dicts (same format as get_klines).
+    """
+    all_candles = []
+    current_start = start_ms
+
+    while current_start < end_ms:
+        params = {
+            "symbol": symbol,
+            "interval": interval,
+            "startTime": current_start,
+            "endTime": end_ms,
+            "limit": MAX_KLINES_PER_REQUEST,
+        }
+        resp = _SESSION.get(
+            f"{config.BASE_URL}/api/v3/klines", params=params, timeout=15
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+        if not raw:
+            break
+
+        candles = [
+            {
+                "open_time": c[0],
+                "open": float(c[1]),
+                "high": float(c[2]),
+                "low": float(c[3]),
+                "close": float(c[4]),
+                "volume": float(c[5]),
+                "close_time": c[6],
+            }
+            for c in raw
+        ]
+        all_candles.extend(candles)
+
+        # Advance past the last returned candle
+        last_close_time = raw[-1][6]
+        current_start = last_close_time + 1
+
+        # Stop if we got fewer than the max (means we've reached the end)
+        if len(raw) < MAX_KLINES_PER_REQUEST:
+            break
+
+    # Deduplicate by open_time (safety guard against off-by-one overlaps)
+    seen: set = set()
+    unique = []
+    for c in all_candles:
+        if c["open_time"] not in seen:
+            seen.add(c["open_time"])
+            unique.append(c)
+
+    return unique

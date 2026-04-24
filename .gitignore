@@ -1,6 +1,9 @@
 # Secrets — never commit
 .env
 
+# Kline cache (large — regenerate with scripts/fetch_history.py)
+data/*.json
+
 # Python
 __pycache__/
 *.py[cod]

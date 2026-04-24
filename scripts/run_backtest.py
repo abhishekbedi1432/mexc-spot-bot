@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -19,6 +20,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bot import config
 from bot.backtester import run_backtest, BacktestMetrics
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def load_candles(symbol: str, interval: str = "5m") -> list:
+    """Load cached klines. Returns [] if cache missing (run fetch_history.py first)."""
+    path = DATA_DIR / f"{symbol}_{interval}.json"
+    if not path.exists():
+        print(f"  [{symbol}] No cache found at {path}. Run: python scripts/fetch_history.py")
+        return []
+    with open(path) as f:
+        return json.load(f)
 from bot.strategies.mean_reversion import MeanReversionStrategy
 from bot.strategies.trend_ema import TrendEMAStrategy
 from bot.strategies.breakout_donchian import BreakoutDonchianStrategy
@@ -43,16 +56,18 @@ def main() -> int:
     strategies = [s for s in STRATEGIES if args.strategy is None or s.name == args.strategy]
 
     print(f"Backtest: {len(symbols)} pair(s) × {len(strategies)} strategy(ies) | {args.days} days")
-    print("Phase 0: kline fetching not yet wired. Results will be empty.\n")
+    print("Loading klines from data/ cache (run fetch_history.py if cache is missing)\n")
 
     results = []
     for symbol in symbols:
+        candles = load_candles(symbol)
+        if not candles:
+            continue
+        print(f"  [{symbol}] {len(candles):,} candles loaded")
         for strategy in strategies:
-            # Phase 2: replace [] with fetched klines
-            candles = []
             metrics = run_backtest(strategy, candles, symbol=symbol)
             results.append(metrics.summary())
-            print(metrics.summary())
+            print(f"    {strategy.name:<25} {metrics.summary()}")
 
     return 0
 
