@@ -21,6 +21,13 @@ CHOSEN_STRATEGIES_FILE = CONFIG_DIR / "chosen_strategies.json"
 # Exchange
 # ---------------------------------------------------------------------------
 BASE_URL = "https://api.binance.com"
+# Interval optimization results (30d, 4 pairs × 4 strategies):
+#   5m:  -$0.21 aggregate, -$0.003/trade, 59% avg win ← WINNER (strict gates filter noise)
+#   15m: -$1.19 aggregate, -$0.006/trade, 53% avg win
+#   30m: -$2.63 aggregate, -$0.014/trade, 47% avg win (worst)
+#   1h:  -$0.91 aggregate, -$0.008/trade, 49% avg win
+# Notable: SOLUSDT momentum_macd on 1h = +$0.35, 75%, 8 trades (watch in paper)
+# Notable: ETHUSDT breakout_donchian positive at 5m, 15m, 30m (most robust signal)
 KLINE_INTERVAL = "5m"
 KLINE_LIMIT = 150  # ~12.5 hours of 5-min candles — enough for all indicators
 
