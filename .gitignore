@@ -1,0 +1,38 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# fvm / flutter (not applicable but safe)
+.fvm/
+
+# Logs — commit decisions.jsonl for audit heartbeat, ignore large paper logs
+logs/paper.jsonl
+logs/*.log
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

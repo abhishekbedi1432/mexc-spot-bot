@@ -1,0 +1,47 @@
+name: Trade Bot
+
+on:
+  schedule:
+    # Offset from top-of-hour to avoid load spikes — runs at :02, :07, :12, ... past each hour
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:  # Manual trigger for testing
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4  # Kill if stuck; next cron fires in 5 min
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need write access to commit decision logs back
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests (fast guard)
+        run: pytest tests/ -x -q
+
+      - name: Run bot tick
+        env:
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'true' }}
+          CAPITAL_USDT: ${{ vars.CAPITAL_USDT || '10.0' }}
+        run: python -m bot.main
+
+      - name: Commit decision log
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add logs/decisions.jsonl || true
+          git diff --cached --quiet || git commit -m "chore: decision log $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push || true
